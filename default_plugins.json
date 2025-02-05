@@ -6,6 +6,7 @@
 		"libplugin-ekuiper.so",
 		"libplugin-modbus-tcp.so",
 		"libplugin-modbus-rtu.so",
-		"libplugin-file.so"
+		"libplugin-file.so",
+		"libplugin-monitor.so"
 	]
 }

@@ -232,6 +232,10 @@ int neu_manager_subscribe(neu_manager_t *manager, const char *app,
                           const char *driver, const char *group,
                           const char *params, uint16_t *app_port)
 {
+    if (neu_node_manager_is_monitor(manager->node_manager, app)) {
+        return NEU_ERR_NODE_NOT_ALLOW_SUBSCRIBE;
+    }
+
     neu_adapter_t *adapter = neu_node_manager_find(manager->node_manager, app);
 
     if (adapter == NULL) {
