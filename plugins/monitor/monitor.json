@@ -1,0 +1,169 @@
+{
+  "client-id": {
+    "name": "Client ID",
+    "name_zh": "客户端 ID",
+    "description": "MQTT client ID",
+    "description_zh": "MQTT 客户端 ID",
+    "type": "string",
+    "attribute": "required",
+    "default": "neuron_monitor_${random_str}",
+    "valid": {
+      "length": 255
+    }
+  },
+  "event-topic-prefix": {
+    "name": "Event Topic Prefix",
+    "name_zh": "事件主题前缀",
+    "description": "Prefix of the topics to which publish event messages.",
+    "description_zh": "事件消息发布的主题前缀",
+    "type": "string",
+    "attribute": "required",
+    "default": "/neuron/{client-id}",
+    "valid": {
+      "length": 255
+    }
+  },
+  "heartbeat-interval": {
+    "name": "Heartbeat Interval",
+    "name_zh": "心跳间隔",
+    "description": "Interval in seconds between two heartbeat messages. Setting to zero will disable heartbeat monitoring.(seconds)",
+    "description_zh": "每个心跳消息之间的间隔时间（秒），设置为 0 将禁用心跳消息。",
+    "attribute": "required",
+    "type": "int",
+    "default": 0,
+    "valid": {
+      "min": 0
+    }
+  },
+  "heartbeat-topic": {
+    "name": "Heartbeat Topic",
+    "name_zh": "心跳主题",
+    "description": "Topic to which publish heartbeat messages.",
+    "description_zh": "心跳消息发布的主题",
+    "type": "string",
+    "attribute": "required",
+    "default": "/neuron/${node-name}/heartbeat",
+    "valid": {
+      "length": 255
+    }
+  },
+  "host": {
+    "name": "Broker Host",
+    "name_zh": "服务器地址",
+    "description": "MQTT broker host",
+    "description_zh": "MQTT 服务器地址",
+    "attribute": "required",
+    "type": "string",
+    "default": "broker.emqx.io",
+    "valid": {
+      "length": 255
+    }
+  },
+  "port": {
+    "name": "Broker Port",
+    "name_zh": "服务器端口",
+    "description": "MQTT broker port",
+    "description_zh": "MQTT 服务器端口",
+    "attribute": "required",
+    "type": "int",
+    "default": 1883,
+    "valid": {
+      "min": 1024,
+      "max": 65535
+    }
+  },
+  "username": {
+    "name": "Username",
+    "name_zh": "用户名",
+    "description": "MQTT user name",
+    "description_zh": "MQTT 用户名",
+    "attribute": "optional",
+    "type": "string",
+    "default": "",
+    "valid": {
+      "length": 255
+    }
+  },
+  "password": {
+    "name": "Password",
+    "name_zh": "密码",
+    "description": "MQTT user password",
+    "description_zh": "MQTT 用户密码",
+    "attribute": "optional",
+    "type": "string",
+    "default": "",
+    "valid": {
+      "length": 255
+    }
+  },
+  "ssl": {
+    "name": "SSL",
+    "name_zh": "SSL",
+    "description": "Enable SSL connection",
+    "description_zh": "是否启用 SSL 连接",
+    "attribute": "optional",
+    "type": "bool",
+    "default": false,
+    "valid": {}
+  },
+  "ca": {
+    "name": "CA",
+    "name_zh": "CA 证书",
+    "description": "CA certificate which signs the server certificate",
+    "description_zh": "签发服务器证书的 CA 证书",
+    "attribute": "optional",
+    "type": "file",
+    "condition": {
+      "field": "ssl",
+      "value": true
+    },
+    "valid": {
+      "length": 81960
+    }
+  },
+  "cert": {
+    "name": "Client Cert",
+    "name_zh": "客户端证书",
+    "description": "Client x509 certificate when using two way authentication",
+    "description_zh": "使用双向认证时，客户端的 x509 证书",
+    "attribute": "optional",
+    "type": "file",
+    "condition": {
+      "field": "ssl",
+      "value": true
+    },
+    "valid": {
+      "length": 81960
+    }
+  },
+  "key": {
+    "name": "Client Private Key",
+    "name_zh": "客户端私钥",
+    "description": "Client private key when using two way authentication",
+    "description_zh": "使用双向认证时，客户端的私钥",
+    "attribute": "optional",
+    "type": "file",
+    "condition": {
+      "field": "ssl",
+      "value": true
+    },
+    "valid": {
+      "length": 81960
+    }
+  },
+  "keypass": {
+    "name": "Client Private Key Password",
+    "name_zh": "客户端私钥密码",
+    "description": "Client private key password when using two way authentication with an encrypted client private key",
+    "description_zh": "使用加密的客户端私钥进行双向认证时，客户端私钥的密码",
+    "attribute": "optional",
+    "type": "string",
+    "condition": {
+      "field": "ssl",
+      "value": true
+    },
+    "valid": {
+      "length": 256
+    }
+  }
+}

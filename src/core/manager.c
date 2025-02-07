@@ -63,6 +63,8 @@ inline static void forward_msg_copy(neu_manager_t *     manager,
                                     neu_reqresp_head_t *header,
                                     const char *        node);
 
+inline static void notify_monitors(neu_manager_t *    manager,
+                                   neu_reqresp_type_e event, void *data);
 static void start_static_adapter(neu_manager_t *manager, const char *name);
 static int  update_timestamp(void *usr_data);
 static void start_single_adapter(neu_manager_t *manager, const char *name,
@@ -418,6 +420,7 @@ static int manager_loop(enum neu_event_io_type type, int fd, void *usr_data)
 
         if (error == NEU_ERR_SUCCESS) {
             manager_strorage_plugin(manager);
+            // notify_monitors(manager, NEU_REQ_ADD_PLUGIN_EVENT, cmd);
         }
 
         free(so_tmp_path);
@@ -454,6 +457,7 @@ static int manager_loop(enum neu_event_io_type type, int fd, void *usr_data)
 
         if (error == NEU_ERR_SUCCESS) {
             manager_strorage_plugin(manager);
+            // notify_monitors(manager, NEU_REQ_DEL_PLUGIN_EVENT, cmd);
         }
 
         header->type = NEU_RESP_ERROR;
@@ -723,6 +727,7 @@ static int manager_loop(enum neu_event_io_type type, int fd, void *usr_data)
             if (cmd->setting) {
                 adapter_storage_setting(cmd->node, cmd->setting);
             }
+            notify_monitors(manager, NEU_REQ_ADD_NODE_EVENT, cmd);
         }
 
         neu_req_add_node_fini(cmd);
@@ -805,6 +810,7 @@ static int manager_loop(enum neu_event_io_type type, int fd, void *usr_data)
             utarray_free(subscriptions);
         }
 
+        notify_monitors(manager, NEU_REQ_DEL_NODE_EVENT, cmd);
         neu_reqresp_node_deleted_t resp = { 0 };
         strcpy(resp.node, header->receiver);
         // notify MQTT about node removal
@@ -939,6 +945,7 @@ static int manager_loop(enum neu_event_io_type type, int fd, void *usr_data)
             forward_msg_copy(manager, header, cmd->app);
             manager_storage_update_subscribe(manager, cmd->app, cmd->driver,
                                              cmd->group, cmd->params);
+            notify_monitors(manager, NEU_REQ_UPDATE_SUBSCRIBE_GROUP_EVENT, cmd);
         } else {
             free(cmd->params);
         }
@@ -961,6 +968,7 @@ static int manager_loop(enum neu_event_io_type type, int fd, void *usr_data)
             forward_msg_copy(manager, header, cmd->driver);
             manager_storage_unsubscribe(manager, cmd->app, cmd->driver,
                                         cmd->group);
+            notify_monitors(manager, NEU_REQ_UNSUBSCRIBE_GROUP_EVENT, cmd);
         }
 
         header->type = NEU_RESP_ERROR;
@@ -1417,6 +1425,27 @@ static int manager_loop(enum neu_event_io_type type, int fd, void *usr_data)
 
         break;
     }
+    case NEU_REQ_ADD_NODE_EVENT:
+    case NEU_REQ_DEL_NODE_EVENT:
+    case NEU_REQ_NODE_CTL_EVENT:
+    case NEU_REQ_NODE_SETTING_EVENT:
+    case NEU_REQ_ADD_GROUP_EVENT:
+    case NEU_REQ_DEL_GROUP_EVENT:
+    case NEU_REQ_UPDATE_GROUP_EVENT:
+    case NEU_REQ_ADD_TAG_EVENT:
+    case NEU_REQ_DEL_TAG_EVENT:
+    case NEU_REQ_UPDATE_TAG_EVENT: 
+    case NEU_REQ_ADD_GTAG_EVENT:
+    case NEU_REQ_ADD_PLUGIN_EVENT:
+    case NEU_REQ_DEL_PLUGIN_EVENT:
+    case NEU_REQ_SUBSCRIBE_GROUP_EVENT:
+    case NEU_REQ_UPDATE_SUBSCRIBE_GROUP_EVENT:
+    case NEU_REQ_UNSUBSCRIBE_GROUP_EVENT:
+    case NEU_REQ_SUBSCRIBE_GROUPS_EVENT: {
+        notify_monitors(manager, header->type, &header[1]);
+        neu_msg_free(msg);
+        break;
+    }
     default:
         assert(false);
         break;
@@ -1652,4 +1681,47 @@ static bool mv_tmp_schema_file(neu_plugin_kind_e kind, const char *tmp_path,
     }
 
     return false;
+}
+
+struct notify_monitor_ctx {
+    neu_manager_t *    manager;
+    neu_reqresp_type_e event;
+    void *             data;
+};
+
+static int notify_monitor(const char *name, struct sockaddr_un addr, void *arg)
+{
+    struct notify_monitor_ctx *ctx     = arg;
+    // monitor not ready, ignore
+    if (0 == addr.sun_path) {
+        return 0;
+    }
+    // message header
+    neu_msg_t *msg = neu_msg_new(ctx->event, NULL, ctx->data);
+    if (NULL == msg) {
+        return -1;
+    }
+    neu_reqresp_head_t *header = neu_msg_get_header(msg);
+    strcpy(header->sender, "manager");
+    strcpy(header->receiver, name);
+
+    int ret = neu_send_msg_to(ctx->manager->server_fd, &addr, msg);
+    if (0 != ret) {
+        nlog_warn("notify %s of %s, error: %s(%d)", header->receiver,
+                  neu_reqresp_type_string(header->type), strerror(errno),
+                  errno);
+        neu_msg_free(msg);
+    }
+    return 0;
+}
+inline static void notify_monitors(neu_manager_t *    manager,
+                                   neu_reqresp_type_e event, void *data)
+{
+    struct notify_monitor_ctx ctx = {
+        .manager = manager,
+        .event   = event,
+        .data    = data,
+    };
+    neu_node_manager_for_each_monitor(manager->node_manager, notify_monitor,
+                                      &ctx);
 }

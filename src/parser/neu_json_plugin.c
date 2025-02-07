@@ -29,6 +29,22 @@
 
 #include "neu_json_plugin.h"
 
+int neu_json_encode_add_plugin_req(void *json_object, void *param)
+{
+    int                          ret = 0;
+    neu_json_add_plugin_req_t *req = param;
+
+    neu_json_elem_t req_elems[] = { {
+                                        .name      = "library",
+                                        .t         = NEU_JSON_STR,
+                                        .v.val_str = req->library,
+                                    }};
+    ret                         = neu_json_encode_field(json_object, req_elems,
+                                NEU_JSON_ELEM_SIZE(req_elems));
+
+    return ret;
+}
+
 int neu_json_decode_add_plugin_req(char *                      buf,
                                    neu_json_add_plugin_req_t **result)
 {
@@ -84,6 +100,22 @@ void neu_json_decode_add_plugin_req_free(neu_json_add_plugin_req_t *req)
     free(req->library);
 
     free(req);
+}
+
+int neu_json_encode_del_plugin_req(void *json_object, void *param)
+{
+    int                          ret = 0;
+    neu_json_add_plugin_req_t *req = param;
+
+    neu_json_elem_t req_elems[] = { {
+                                        .name      = "library",
+                                        .t         = NEU_JSON_STR,
+                                        .v.val_str = req->library,
+                                    }};
+    ret                         = neu_json_encode_field(json_object, req_elems,
+                                NEU_JSON_ELEM_SIZE(req_elems));
+
+    return ret;
 }
 
 int neu_json_decode_del_plugin_req(char *                      buf,

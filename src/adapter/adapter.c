@@ -63,6 +63,8 @@ static int adapter_update_metric(neu_adapter_t *adapter,
                                  const char *group);
 inline static void reply(neu_adapter_t *adapter, neu_reqresp_head_t *header,
                          void *data);
+inline static void notify_monitor(neu_adapter_t *    adapter,
+                                  neu_reqresp_type_e event, void *data);
 
 static const adapter_callbacks_t callback_funs = {
     .command         = adapter_command,
@@ -678,13 +680,21 @@ static int adapter_loop(enum neu_event_io_type type, int fd, void *usr_data)
 
     switch (header->type) {
     case NEU_REQ_SUBSCRIBE_GROUP: {
-        neu_req_subscribe_t *cmd = (neu_req_subscribe_t *) &header[1];
+        neu_req_subscribe_t *cmd   = (neu_req_subscribe_t *) &header[1];
+        neu_resp_error_t     error = { 0 };
+
         if (adapter->module->type == NEU_NA_TYPE_DRIVER) {
             neu_adapter_driver_subscribe((neu_adapter_driver_t *) adapter, cmd);
         } else {
             adapter->module->intf_funs->request(
                 adapter->plugin, (neu_reqresp_head_t *) header, &header[1]);
+            error.error = NEU_ERR_GROUP_NOT_ALLOW;
         }
+
+        if (error.error == NEU_ERR_SUCCESS) {
+            notify_monitor(adapter, NEU_REQ_SUBSCRIBE_GROUP_EVENT, cmd);
+        }
+
         neu_msg_free(msg);
         break;
     }
@@ -721,6 +731,23 @@ static int adapter_loop(enum neu_event_io_type type, int fd, void *usr_data)
     case NEU_REQRESP_NODES_STATE:
     case NEU_REQ_PRGFILE_PROCESS:
     case NEU_RESP_PRGFILE_PROCESS:
+    case NEU_REQ_ADD_NODE_EVENT:
+    case NEU_REQ_DEL_NODE_EVENT:
+    case NEU_REQ_NODE_CTL_EVENT:
+    case NEU_REQ_NODE_SETTING_EVENT:
+    case NEU_REQ_ADD_GROUP_EVENT:
+    case NEU_REQ_DEL_GROUP_EVENT:
+    case NEU_REQ_UPDATE_GROUP_EVENT:
+    case NEU_REQ_ADD_TAG_EVENT:
+    case NEU_REQ_DEL_TAG_EVENT:
+    case NEU_REQ_UPDATE_TAG_EVENT:
+    case NEU_REQ_ADD_GTAG_EVENT:
+    case NEU_REQ_ADD_PLUGIN_EVENT:
+    case NEU_REQ_DEL_PLUGIN_EVENT:
+    case NEU_REQ_SUBSCRIBE_GROUP_EVENT:
+    case NEU_REQ_UNSUBSCRIBE_GROUP_EVENT:
+    case NEU_REQ_UPDATE_SUBSCRIBE_GROUP_EVENT:
+    case NEU_REQ_SUBSCRIBE_GROUPS_EVENT:
         adapter->module->intf_funs->request(
             adapter->plugin, (neu_reqresp_head_t *) header, &header[1]);
         neu_msg_free(msg);
@@ -970,7 +997,9 @@ static int adapter_loop(enum neu_event_io_type type, int fd, void *usr_data)
         error.error = neu_adapter_set_setting(adapter, cmd->setting);
         if (error.error == NEU_ERR_SUCCESS) {
             adapter_storage_setting(adapter->name, cmd->setting);
-            free(cmd->setting);
+            // ownership of `cmd->setting` transfer
+            notify_monitor(adapter, NEU_REQ_NODE_SETTING_EVENT, cmd);
+            // free(cmd->setting);
         } else {
             free(cmd->setting);
         }
@@ -1075,6 +1104,7 @@ static int adapter_loop(enum neu_event_io_type type, int fd, void *usr_data)
 
         if (error.error == NEU_ERR_SUCCESS) {
             adapter_storage_add_group(adapter->name, cmd->group, cmd->interval);
+            notify_monitor(adapter, NEU_REQ_ADD_GROUP_EVENT, cmd);
         }
 
         neu_msg_exchange(header);
@@ -1098,6 +1128,7 @@ static int adapter_loop(enum neu_event_io_type type, int fd, void *usr_data)
         if (resp.error == NEU_ERR_SUCCESS) {
             adapter_storage_update_group(adapter->name, cmd->group,
                                          cmd->new_name, cmd->interval);
+            notify_monitor(adapter, NEU_REQ_UPDATE_GROUP_EVENT, cmd);
         }
 
         strcpy(resp.driver, cmd->driver);
@@ -1124,6 +1155,7 @@ static int adapter_loop(enum neu_event_io_type type, int fd, void *usr_data)
 
         if (error.error == NEU_ERR_SUCCESS) {
             adapter_storage_del_group(cmd->driver, cmd->group);
+            notify_monitor(adapter, NEU_REQ_DEL_GROUP_EVENT, cmd);
         }
 
         neu_msg_exchange(header);
@@ -1142,6 +1174,10 @@ static int adapter_loop(enum neu_event_io_type type, int fd, void *usr_data)
         case NEU_ADAPTER_CTL_STOP:
             error.error = neu_adapter_stop(adapter);
             break;
+        }
+
+        if (0 == error.error) {
+            notify_monitor(adapter, NEU_REQ_NODE_CTL_EVENT, cmd);
         }
 
         neu_msg_exchange(header);
@@ -1183,10 +1219,14 @@ static int adapter_loop(enum neu_event_io_type type, int fd, void *usr_data)
             error.error = NEU_ERR_GROUP_NOT_ALLOW;
         }
 
-        for (uint16_t i = 0; i < cmd->n_tag; i++) {
-            free(cmd->tags[i]);
+        if (0 == error.error) {
+            notify_monitor(adapter, NEU_REQ_DEL_TAG_EVENT, cmd);
+        } else {
+            for (uint16_t i = 0; i < cmd->n_tag; i++) {
+                free(cmd->tags[i]);
+            }
+            free(cmd->tags);
         }
-        free(cmd->tags);
 
         neu_msg_exchange(header);
         header->type = NEU_RESP_ERROR;
@@ -1236,16 +1276,19 @@ static int adapter_loop(enum neu_event_io_type type, int fd, void *usr_data)
             }
         }
 
+        for (uint16_t i = resp.index; i < cmd->n_tag; i++) {
+            neu_tag_fini(&cmd->tags[i]);
+        }
+
         if (resp.index) {
             // we have added some tags, try to persist
             adapter_storage_add_tags(cmd->driver, cmd->group, cmd->tags,
                                      resp.index);
+            cmd->n_tag = resp.index;
+            notify_monitor(adapter, NEU_REQ_ADD_TAG_EVENT, cmd);
+        } else {
+            free(cmd->tags);
         }
-
-        for (uint16_t i = 0; i < cmd->n_tag; i++) {
-            neu_tag_fini(&cmd->tags[i]);
-        }
-        free(cmd->tags);
 
         neu_msg_exchange(header);
         header->type = NEU_RESP_ADD_TAG;
@@ -1253,8 +1296,9 @@ static int adapter_loop(enum neu_event_io_type type, int fd, void *usr_data)
         break;
     }
     case NEU_REQ_ADD_GTAG: {
-        neu_req_add_gtag_t *cmd  = (neu_req_add_gtag_t *) &header[1];
-        neu_resp_add_tag_t  resp = { 0 };
+        neu_req_add_gtag_t *cmd   = (neu_req_add_gtag_t *) &header[1];
+        neu_resp_add_tag_t  resp  = { 0 };
+        int                 error = -1;
 
         if (adapter->module->type != NEU_NA_TYPE_DRIVER) {
             resp.error = NEU_ERR_GROUP_NOT_ALLOW;
@@ -1267,16 +1311,27 @@ static int adapter_loop(enum neu_event_io_type type, int fd, void *usr_data)
                                              cmd->groups[i].tags,
                                              cmd->groups[i].n_tag);
                 }
+                notify_monitor(adapter, NEU_REQ_ADD_GTAG_EVENT, cmd);
+                error = 0;
             }
         }
 
-        for (int i = 0; i < cmd->n_group; i++) {
+        if (error != 0) {
+            for (int i = 0; i < cmd->n_group; i++) {
+                for (int j = 0; j < cmd->groups[i].n_tag; j++) {
+                    neu_tag_fini(&cmd->groups[i].tags[j]);
+                }
+                free(cmd->groups[i].tags);
+            }
+            free(cmd->groups);
+        }
+        /*for (int i = 0; i < cmd->n_group; i++) {
             for (int j = 0; j < cmd->groups[i].n_tag; j++) {
                 neu_tag_fini(&cmd->groups[i].tags[j]);
             }
             free(cmd->groups[i].tags);
         }
-        free(cmd->groups);
+        free(cmd->groups);*/
 
         neu_msg_exchange(header);
         header->type = NEU_RESP_ADD_GTAG;
@@ -1315,10 +1370,15 @@ static int adapter_loop(enum neu_event_io_type type, int fd, void *usr_data)
             resp.error = NEU_ERR_GROUP_NOT_ALLOW;
         }
 
-        for (uint16_t i = 0; i < cmd->n_tag; i++) {
+        for (uint16_t i = resp.index; i < cmd->n_tag; i++) {
             neu_tag_fini(&cmd->tags[i]);
         }
-        free(cmd->tags);
+        if (resp.index > 0) {
+            cmd->n_tag = resp.index;
+            notify_monitor(adapter, NEU_REQ_UPDATE_TAG_EVENT, cmd);
+        } else {
+            free(cmd->tags);
+        }
 
         neu_msg_exchange(header);
         header->type = NEU_RESP_UPDATE_TAG;
@@ -1766,5 +1826,24 @@ inline static void reply(neu_adapter_t *adapter, neu_reqresp_head_t *header,
         nlog_warn("%s reply %s to %s, error: %s(%d)", header->sender,
                   neu_reqresp_type_string(header->type), header->receiver,
                   strerror(errno), errno);
+    }
+}
+
+inline static void notify_monitor(neu_adapter_t *    adapter,
+                                  neu_reqresp_type_e event, void *data)
+{
+    neu_msg_t *msg = neu_msg_new(event, NULL, data);
+    if (NULL == msg) {
+        return;
+    }
+    neu_reqresp_head_t *header = neu_msg_get_header(msg);
+    strcpy(header->receiver, "manager");
+    strncpy(header->sender, adapter->name, NEU_NODE_NAME_LEN);
+    int ret = neu_send_msg(adapter->control_fd, msg);
+    if (0 != ret) {
+        nlog_warn("notify %s of %s, error: %s(%d)", header->receiver,
+                  neu_reqresp_type_string(header->type), strerror(errno),
+                  errno);
+        neu_msg_free(msg);
     }
 }
